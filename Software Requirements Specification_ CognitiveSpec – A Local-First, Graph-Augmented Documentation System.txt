@@ -1,0 +1,445 @@
+﻿Software Requirements Specification: CognitiveSpec – A Local-First, Graph-Augmented Documentation System
+1. Executive Summary and Strategic Vision
+1.1 Project Overview
+CognitiveSpec is a local-first software application designed to fundamentally transform how technical documentation is managed, visualized, and consumed. Unlike traditional static documentation generators, CognitiveSpec treats Software Requirements Specifications (SRS) as a living, interconnected knowledge graph. The system ingests standard Markdown files, utilizes Large Language Models (LLM)—specifically the Google Gemini API—to semantically understand entities and relationships, and constructs a navigable graph structure that powers both visual exploration and Retrieval-Augmented Generation (RAG).
+The defining characteristic of CognitiveSpec is its development methodology: "Vibe Coding." The project is architected explicitly to be built, maintained, and extended by a single developer working in tandem with AI coding agents (specifically Cursor). This constraint dictates every architectural decision, prioritizing code simplicity, context-window efficiency, and modular monolith patterns over distributed complexity or scalability. The goal is to produce a tool that feels "alive" and easy to modify, optimizing for the "flow state" of the developer rather than the rigid robustness of enterprise SaaS.1
+1.2 The "Vibe Coding" Philosophy
+"Vibe Coding" is not merely a slang term but a distinct development paradigm that prioritizes speed of iteration and the symbiotic relationship between the human architect and the AI implementer. In this model, the codebase serves as the prompt for the AI. Therefore, the architecture must be "AI-readable":
+* Context Locality: Related logic (UI, Backend, Data) should be accessible within the AI's limited context window. This favors a "Modular Monolith" approach where a single Python file or a shallow directory structure contains the full stack for a feature.4
+* Framework Familiarity: The stack must rely on libraries the AI has been heavily trained on. Streamlit (Python) is chosen over React (JavaScript) because it allows the AI to reason about the entire application state in a single language, reducing the cognitive load of context-switching between frontend and backend paradigms.6
+* Iterative Plasticity: The system design avoids rigid schemas that require complex migrations, preferring flexible JSON-based structures that can evolve as the AI "hallucinates" better features.8
+1.3 Core Value Propositions
+1. Automated Knowledge Synthesis: By using Gemini's structured output capabilities, the system automatically extracts entities (Requirements, Components, APIs) and their relationships (Depends On, Conflicts With) from unstructured text, creating a Knowledge Graph without manual data entry.9
+2. Graph Retrieval-Augmented Generation (GraphRAG): Standard vector search fails to capture structural dependencies. CognitiveSpec employs GraphRAG to traverse the knowledge graph during queries, ensuring that if a user asks about "User Login," the system also retrieves information about the "Auth Database" and "SSO Service" connected to it, providing a holistic answer.11
+3. Semantic Hyperlinking: The system acts as an "Auto-Linker," analyzing the text to identify mentions of known entities and dynamically injecting hyperlinks. This transforms isolated Markdown files into a dense, wiki-like mesh.13
+4. Local Data Sovereignty: All parsing, graph construction, and vector storage occur locally on the user's machine. The Gemini API is used strictly as a stateless reasoning engine, ensuring that proprietary documentation does not persist in a third-party vector cloud.4
+________________
+2. Architectural Design and Technology Stack
+2.1 Technology Selection Matrix
+The selection of technologies for CognitiveSpec is driven by the "Vibe Coding" constraint: maximizing the ability of Cursor (the AI IDE) to generate, debug, and maintain the code.
+
+
+Component
+	Selected Technology
+	Rationale for AI-Assisted Development
+	Language
+	Python 3.11+
+	The "Lingua Franca" of AI. Cursor excels at Python generation. The vast ecosystem allows handling NLP, Graphs, and UI in a single runtime.3
+	Frontend
+	Streamlit
+	Streamlit's declarative syntax allows the AI to generate full UI components in 5-10 lines of code. It eliminates the need for a separate frontend repo, API layer, or state management complexities (Redux/Context), keeping the entire app context-window friendly.6
+	LLM Provider
+	Google Gemini API
+	Chosen for its massive context window (up to 1M tokens) and native support for JSON Structured Output, which is critical for reliable entity extraction. Its cost-effectiveness (Flash model) supports high-volume "vibe" iterations.9
+	Graph Database
+	NetworkX (In-Memory/JSON)
+	Enterprise graph DBs (Neo4j) introduce Docker dependencies and complex query languages (Cypher) that distract from the "vibe." NetworkX is pure Python, allowing the AI to manipulate the graph using standard Python lists and dictionaries.16
+	Vector Store
+	ChromaDB
+	A lightweight, embedded vector database that runs as a library. It requires no separate server process, simplifying the "git clone & run" experience.14
+	IDE / Agent
+	Cursor
+	The development environment itself is a dependency. The project structure includes .cursorrules to guide the AI agent.1
+	2.2 High-Level Architecture
+The system follows a Data-Centric Modular Monolith pattern. The application state is held primarily in memory (loaded from disk on startup) to ensure responsiveness, with background threads handling the heavy lifting of ingestion and AI analysis.
+2.2.1 Layer Definition
+1. The Ingestion Layer: Watches the file system for changes in Markdown files. It handles parsing, hashing (to avoid re-processing), and semantic chunking.
+2. The Cognitive Layer (Services):
+   * Extraction Service: Interfaces with Gemini to turn text into graph nodes/edges.
+   * Embedding Service: Converts text chunks into vector embeddings (using local sentence-transformers or Gemini embeddings).
+   * Linking Service: Scans text for entity mentions and injects links.
+3. The Persistence Layer:
+   * docs/: The raw markdown files (Source of Truth).
+   * .cognitivespec/graph.json: The serialized Knowledge Graph.
+   * .cognitivespec/chroma/: The on-disk vector store.
+4. The Presentation Layer: A Streamlit application that renders the graph, chat interface, and documentation viewer.
+2.3 Directory Structure for Context Optimization
+To assist Cursor, the directory structure is kept flat and descriptive.
+CognitiveSpec/
+├──.cursorrules # Instructions for the AI Agent
+├──.env # API Keys (GEMINI_API_KEY)
+├── app.py # Main Streamlit Entry Point
+├── requirements.txt # Python dependencies
+├── services/
+│ ├── init.py
+│ ├── ingestion.py # File reading & Chunking
+│ ├── graph_engine.py # NetworkX & Gemini Extraction Logic
+│ ├── rag_engine.py # Vector Search & Answer Generation
+│ └── linker.py # Regex & Hyperlink Injection
+├── components/
+│ ├── graph_viz.py # Streamlit-Agraph/Pyvis wrappers
+│ └── chat_ui.py # Chat bubbles & logic
+└── data/
+├── docs/ # User's SRS files
+└── internal/ # Generated JSONs & DBs
+This structure allows the user to simply drag the services folder into the Cursor chat context, giving the AI full visibility into the backend logic.19
+________________
+3. Functional Requirements: The Ingestion Pipeline
+The foundation of the system is the ability to turn static text into structured data. This process must be robust, incremental, and tolerant of the messy reality of documentation.
+3.1 FR-1: Intelligent Document Parsing
+Description: The system must read Markdown files and deconstruct them into semantic units.
+Rationale: Standard fixed-size chunking (e.g., splitting every 500 characters) destroys context. A chunk ending mid-sentence loses the relationship between the subject and the object.
+3.1.1 Semantic Hierarchical Chunking Algorithm
+The ingestion.py module shall implement a parser that respects the logical structure of the document:
+1. Header Awareness: The parser identifies Markdown headers (#, ##, ###) as semantic boundaries. Text within a header section is treated as a coherent unit.
+2. Atomic Blocks: Code blocks (```), tables, and lists are never split. If a code block exceeds the token limit, the entire block is flagged for summary, but not fractured.
+3. Context Injection: Each chunk is enriched with its "breadcrumbs." A paragraph under ## User Authentication > ### Login API will have the metadata context: "User Authentication > Login API" prepended to it before embedding. This ensures the vector search understands the global context of the local text.21
+3.1.2 Change Detection (Incremental Build)
+Description: The system shall maintain a manifest.json containing the MD5 hash of every processed file.
+Logic: On startup, the Ingestion Service scans the docs/ folder. It compares current file hashes against the manifest. Only files with changed hashes are sent to the costly AI Extraction pipeline. This is crucial for local performance and API cost management.
+3.2 FR-2: Entity and Relationship Extraction
+Description: The system uses the Gemini API to "read" the chunks and extract a structured knowledge graph.
+Rationale: Manual graph entry is non-viable. We rely on the "reasoning" capability of the LLM to identify abstract connections.12
+3.2.1 The Extraction Prompt Strategy
+The graph_engine.py shall utilize Gemini's response_mime_type="application/json" feature to enforce a strict schema.9
+System Prompt Specification:
+"You are a Senior Systems Architect analyzing a requirements document. Your goal is to map the system topology.
+Task: Extract all technical Entities and their Relationships from the provided text.
+Entity Types:
+* COMPONENT: Software modules, services, databases, UIs.
+* REQUIREMENT: Business rules, constraints, functional mandates.
+* API: Endpoints, function signatures, data contracts.
+* ACTOR: Users, external systems, third-party services.
+Relationship Types:
+* DEPENDS_ON: Structural dependency (A imports B).
+* CALLS: Runtime interaction (A sends request to B).
+* CONFLICTS_WITH: Logical contradiction.
+* DEFINES: A document section defines an entity.
+Output: A JSON object matching the Schema GraphExtraction."
+3.2.2 Entity Resolution (Deduplication)
+Problem: The text might refer to "The Login Service", "LoginSvc", and "auth_login" which are the same entity.
+Solution:
+   1. Local Normalization: Convert all names to lowercase/snake_case for initial matching.
+   2. Semantic Clustering: Periodically, the system runs a "Cleanup Job." It embeds all entity names and clusters them using DBSCAN (via scikit-learn). Clusters with high similarity (e.g., >0.9 cosine similarity) are sent to Gemini with the prompt: "Are these synonyms? If yes, pick the canonical name." The graph is then rewritten to merge these nodes.13
+3.3 FR-3: The Knowledge Graph Data Structure
+Description: The extracted data is stored in a NetworkX graph object.
+Requirements:
+   * Persistence: The graph is serialized to graphml (an XML-based format supported by Gephi and other tools) or gexf. This allows the developer to open the graph in external tools for debugging.
+   * Attributes:
+   * Nodes must store source_file_path and description (generated by AI).
+   * Edges must store justification (the text snippet that proved the relationship exists).
+________________
+4. Functional Requirements: The Hyperlinking Engine
+One of the most powerful features of CognitiveSpec is the transformation of static text into a hypertext garden.
+4.1 FR-4: Entity Mention Detection
+Description: The system scans the raw Markdown content to find occurrences of the entities identified in the Graph Construction phase.
+Algorithm (The "Longest Match" Heuristic):
+   1. Corpus Preparation: Load all verified Entity Names from the Knowledge Graph.
+   2. Sorting: Sort names by length in descending order. This ensures that "User Authentication Service" is matched before "User".
+   3. Boundary Detection: Use Python's re module (Regex) with word boundary checks (\bEntity Name\b) to ensure we don't match substrings inside other words (e.g., matching "Use" inside "User").
+   4. Exclusion Zones: The scanner must parse the Markdown AST to skip text that is already inside a link [...], a code block ..., or an image tag. Modifying text inside a code block would destroy the integrity of the documentation.13
+4.2 FR-5: Dynamic Link Injection
+Description: Detected mentions are replaced with internal links.
+Implementation:
+   * Target: The link points to a Streamlit query parameter. Example: (/?entity=login_service).
+   * Behavior: When the user clicks this link in the UI, the Streamlit app re-runs (triggering st.experimental_set_query_params), and the UI focuses on the "Login Service" node in the graph view, displaying its details in the sidebar.
+   * Vibe Coding Note: This feature is implemented purely in Python using string manipulation. No complex JavaScript event listeners are required, keeping the codebase AI-friendly.
+________________
+5. Functional Requirements: GraphRAG & Querying
+Standard RAG (Vector Search) is insufficient for SRS because requirements are often distributed. A requirement for "Fast Response Times" might be in File A, while the "Database Sharding" design that satisfies it is in File B. Only the graph connects them.
+5.1 FR-6: Hybrid Retrieval Strategy
+Description: When a user asks a question, the system employs a two-stage retrieval process.
+Process Flow:
+   1. Vector Retrieval: The user's query is embedded. The system searches ChromaDB for the top K (e.g., 5) semantically similar text chunks.
+   2. Graph Expansion (The "Graph" in GraphRAG):
+   * For every retrieved text chunk, identify the graph nodes linked to it.
+   * Traversal: Traverse 1 hop out from these nodes. Collect the neighboring nodes (e.g., "The retrieved chunk describes the API. The graph shows this API depends on the Legacy Mainframe.").
+   * Context Enrichment: Append the descriptions of these neighboring nodes to the context window.
+   3. Synthesis: The combined context (Vector Chunks + Neighboring Graph Metadata) is sent to Gemini to generate the answer.11
+5.2 FR-7: "Chain of Thought" Transparency
+Description: To build trust, the system must show why it gave an answer.
+UI Requirement: The Chat Interface must include a "Debug/Thinking" expander.
+   * Content:
+   * "Found direct matches in: auth.md"
+   * "Graph traversal identified dependency: user_db (implied risk)."
+   * "Gemini Reasoning:..."
+This aligns with the "Vibe Coding" ethos of transparency—the developer needs to see if the AI is hallucinating connections so they can fix the graph.24
+________________
+6. User Interface Specification (Streamlit)
+The UI is designed to be functional, minimalist, and auto-generated.
+6.1 Layout Strategy
+The application uses a standard Streamlit "Sidebar + Main" layout.
+Sidebar:
+      * Navigation: Radio buttons for "Graph Explorer", "Document Reader", "Chat", "Settings".
+      * Graph Stats: Live metrics (Node Count, Edge Density).
+      * Ingestion Controls: A "Re-Scan Documents" button that triggers the backend ingestion pipeline.
+6.2 View 1: The Graph Explorer
+Component: streamlit-agraph or st-link-analysis.15
+Functionality:
+      * Displays the full knowledge graph using a force-directed layout.
+      * Interactivity: Clicking a node opens a sidebar panel showing the Node Description, source file link, and a list of incoming/outgoing edges.
+      * Physics: Users can drag nodes to rearrange the view (vibe check: this looks cool and helps understand clusters).
+6.3 View 2: The Document Reader (Hyperlinked)
+Functionality:
+      * Renders the Markdown files using st.markdown.
+      * Crucially, the rendered markdown contains the injected hyperlinks from FR-5.
+      * Split View: The screen can be split (using st.columns). The left side shows the text. The right side shows a mini-graph of only the entities mentioned in the currently visible text (Local Context Graph).
+6.4 View 3: The Chat Interface
+Component: st.chat_message and st.chat_input.
+Features:
+      * Standard chat bubble history.
+      * Streaming responses (using Gemini's streaming API) for a responsive feel.
+      * Citations: The AI is instructed to format citations as links ``, which are clickable and navigate to the Document Reader.
+________________
+7. Data Models and Schema Design
+Defining strict schemas is critical for preventing the AI agent (Cursor) from writing messy, untyped code.
+7.1 The Knowledge Graph Schema (JSON)
+
+
+JSON
+
+
+
+
+{
+ "nodes":,
+ "edges":
+}
+
+7.2 The Vector Store Metadata Schema
+When storing chunks in ChromaDB, the metadata is vital for filtering.
+
+
+JSON
+
+
+
+
+{
+ "source": "docs/api/auth.md",
+ "chunk_index": 4,
+ "header_path": "Authentication > Login Flow",
+ "last_modified": "2023-10-27T10:00:00Z"
+}
+
+7.3 The Gemini Structured Output Schema (Python Pydantic)
+This Pydantic model is passed directly to the Gemini API to enforce the response format.
+
+
+Python
+
+
+
+
+from pydantic import BaseModel, Field
+from typing import List
+
+class Entity(BaseModel):
+   name: str = Field(..., description="Canonical name of the entity")
+   type: str = Field(..., description="One of: COMPONENT, REQUIREMENT, API, ACTOR")
+   description: str = Field(..., description="Short summary of its role")
+
+class Relationship(BaseModel):
+   source: str = Field(..., description="Name of source entity")
+   target: str = Field(..., description="Name of target entity")
+   relation_type: str = Field(..., description="One of: DEPENDS_ON, CALLS, CONFLICTS_WITH")
+
+class GraphExtraction(BaseModel):
+   entities: List[Entity]
+   relationships: List
+
+________________
+8. Implementation Strategy: The "Vibe Coding" Workflow
+This section provides the explicit guide for the developer (you) to build this system using Cursor. It breaks the project down into "Vibe Sessions"—short, iterative sprints where the AI generates the bulk of the code.
+8.1 The .cursorrules Configuration
+Create a file named .cursorrules in the root. This "programs" the AI agent with your architectural constraints.19
+#.cursorrules
+You are an expert Python Developer specializing in Streamlit, NetworkX, and GraphRAG.
+Development Philosophy ("Vibe Coding")
+      1. Simplicity First: Prefer a single services.py over complex package structures unless necessary.
+      2. Streamlit Native: Use st.session_state for state. Do not suggest React or generic HTML/JS.
+      3. Type Safety: Always use Python type hints (List[str], Dict).
+      4. Error Handling: Wrap all Gemini API calls in try/except blocks with exponential backoff.
+Tech Stack
+      * Frontend: Streamlit
+      * Graph: NetworkX
+      * AI: google-generativeai (Gemini 1.5 Flash)
+      * Vector: ChromaDB
+Specific Patterns
+      * When asked to "Ingest", assume we are parsing Markdown files.
+      * When extracting entities, always use the Pydantic schema GraphExtraction.
+      * Use st.columns to create layouts.
+      * For graph visualization, use streamlit-agraph.
+8.2 Step-by-Step Prompting Plan
+Phase 1: The Skeleton (Session 1)
+Prompt: "Create a basic Streamlit app structure for 'CognitiveSpec'. I need a main app.py and a services/ directory. Create a dummy app.py that has a sidebar with navigation options: 'Graph', 'Chat', 'Docs'. Use st.set_page_config to set the title."
+Phase 2: The Ingestor (Session 2)
+Prompt: "Create services/ingestion.py. I need a function load_docs(directory) that recursively finds all .md files. For each file, read the content. Then, implement a chunking function that splits the text by H2 headers (##). Return a list of Document objects."
+Phase 3: The Graph Engine (Session 3)
+Prompt: "Create services/graph.py. Initialize the Gemini API using os.getenv('GEMINI_API_KEY'). Create a function extract_graph_from_text(text) that uses the GraphExtraction Pydantic model (I will provide the schema) to get structured output from Gemini. Test this function with a dummy string."
+Phase 4: The Visualization (Session 4)
+Prompt: "In app.py, under the 'Graph' tab, use streamlit-agraph to visualize a NetworkX graph. Create a helper function in services/graph.py to convert a NetworkX graph into the nodes and edges format required by agraph. Add a physics config to make it interactive."
+Phase 5: The RAG Loop (Session 5)
+Prompt: "Implement the Chat interface. When I submit a query: 1. Search the ChromaDB index (mock this for now if needed). 2. Find the graph neighbors of the results. 3. Construct a prompt for Gemini that includes this context. 4. Stream the response back to the UI."
+________________
+9. Failure Modes and Risk Mitigation
+In a "Vibe Coding" environment, we prioritize speed, but we must be aware of where the system might break.
+9.1 The "Hairball" Graph Problem
+Risk: As documents grow, the graph might become a "hairball"—everything connected to everything, making visualization useless.
+Mitigation:
+      * Edge Filtering: In the UI, add a slider to filter edges by "Weight" or "Type".
+      * Ego Graphs: Instead of showing the whole graph, default to showing only the "Ego Graph" (Radius 2) of the currently selected node or the current search term.
+9.2 Hallucination and Drift
+Risk: Gemini might "invent" a dependency that doesn't exist, or the code might change while the docs remain stale.
+Mitigation:
+      * Confidence Scores: Ask Gemini to output a confidence score (0-1) for each relationship. Visualize low-confidence edges as dashed lines.
+      * "Blame" Links: Every edge in the graph must link back to the exact text chunk that generated it. If the graph looks wrong, the user clicks the edge to see the source text and can edit the Markdown to correct the ambiguity.
+9.3 API Costs and Latency
+Risk: Re-embedding the whole documentation on every startup is slow and costly.
+Mitigation:
+      * Pickling: Use Python's pickle or json module to dump the Graph and VectorStore state to disk.
+      * Manifest Check: Strictly enforce the File Hash check (FR-1.2) so that only changed files are re-processed.
+________________
+10. Future Roadmap
+While the current SRS focuses on the local Vibe Coding MVP, the architecture allows for future expansion.
+      1. Multi-Modal Ingestion: Support for parsing images (Architecture Diagrams) using Gemini 1.5 Pro Vision.
+      2. Git Integration: Automatically analyzing Pull Requests to see if code changes conflict with the SRS graph (e.g., "You changed the Login API, but the SRS says it's frozen.").
+      3. MCP Server: Exposing the CognitiveSpec graph as a Model Context Protocol (MCP) server. This would allow Cursor itself (the IDE) to query the SRS graph while the developer is writing code, closing the loop completely.1
+________________
+11. Conclusion
+CognitiveSpec represents a shift from "Documentation as text" to "Documentation as a Database." By leveraging the "Vibe Coding" methodology, we accept that the code will be fluid, AI-generated, and continuously evolving. The architecture defined here—Monolithic, Python-centric, and Graph-Augmented—provides the optimal substrate for this evolution. It empowers a single developer to manage a complexity of requirements that would typically require a team of systems engineers, democratizing high-fidelity systems architecture through the power of local AI.
+________________
+12. Deep Dive Analysis: The "Vibe Coding" Implementation Guide
+This section provides the granular, "in-the-weeds" details required for the 15,000-word target, specifically tailored for the AI agent to ingest.
+12.1 Detailed Ingestion Logic: The FileWatcher Class
+The Ingestion service is not just a script; it is a daemon.
+
+
+Python
+
+
+
+
+# services/ingestion.py (Conceptual Implementation)
+
+import hashlib
+import os
+from typing import List, Dict
+
+class FileWatcher:
+   def __init__(self, root_dir: str):
+       self.root_dir = root_dir
+       self.manifest_path = os.path.join(root_dir, ".cognitivespec/manifest.json")
+       self.manifest = self._load_manifest()
+
+   def _calculate_file_hash(self, file_path: str) -> str:
+       """Read file in binary mode and return MD5."""
+       with open(file_path, "rb") as f:
+           return hashlib.md5(f.read()).hexdigest()
+
+   def get_changed_files(self) -> List[str]:
+       """Compare current disk state with manifest."""
+       changed =
+       for root, _, files in os.walk(self.root_dir):
+           for file in files:
+               if file.endswith(".md"):
+                   path = os.path.join(root, file)
+                   current_hash = self._calculate_file_hash(path)
+                   if self.manifest.get(path)!= current_hash:
+                       changed.append(path)
+                       self.manifest[path] = current_hash # Update Optimistically
+       return changed
+
+   def save_manifest(self):
+       """Persist the new state."""
+       # JSON dump logic...
+
+Insight: The AI needs to see this logic to understand that we are building a stateful system, not just a script. The _load_manifest and save_manifest methods are critical for the "Incremental Build" requirement.
+12.2 Detailed Graph Engine: Handling "Graph Drift"
+One of the hardest problems in GraphRAG is managing deletions. If auth.md is deleted, all nodes derived from it must be removed from the graph.
+The "Source Tracking" Algorithm:
+      1. Node Metadata: Every node in NetworkX must have a source_file attribute.
+      * G.add_node("UserLogin", source_file="docs/auth.md")
+      2. Pruning Routine: Before processing changed files, the system must run a pruning pass.
+      * Identify files that were modified or deleted.
+      * Iterate through the graph: nodes_to_remove = in changed_files]
+      * G.remove_nodes_from(nodes_to_remove)
+      3. Re-Ingestion: Only after pruning do we add the new nodes from the updated file.
+Reasoning: Without this, the graph would accumulate "Zombie Nodes"—entities that no longer exist in the documentation but persist in the graph, leading to hallucinations in the RAG output.
+12.3 The Hyperlinker: Aho-Corasick for Speed?
+While the main body suggested Regex (for simplicity/vibe), if the documentation scales to 1,000+ entities, Regex becomes slow ($O(N \times M)$ where $N$ is text length and $M$ is number of entities).
+Alternative for Scale (to be considered if Vibe Check fails):
+         * FlashText Algorithm: A Python library (flashtext) that replaces keywords in one pass ($O(N)$).
+         * Implementation:
+Python
+from flashtext import KeywordProcessor
+processor = KeywordProcessor()
+for entity in graph_entities:
+   processor.add_keyword(entity.name, f"[{entity.name}](/?entity={entity.id})")
+
+linked_text = processor.replace_keywords(raw_markdown_text)
+
+         * Trade-off: FlashText doesn't natively handle the "Exclusion Zones" (inside code blocks). We might need to split the text by code blocks first, run FlashText on the text parts, and then re-assemble. This adds complexity but guarantees scalability. For the initial "Vibe Coding" MVP, stick to Regex, but note this upgrade path.
+12.4 Gemini Configuration for Reliability
+The API settings in services/graph_engine.py should be tuned for determinism.
+
+
+Python
+
+
+
+
+generation_config = {
+   "temperature": 0.1,  # Low temp for factual extraction
+   "top_p": 0.95,
+   "top_k": 64,
+   "max_output_tokens": 8192,
+   "response_mime_type": "application/json",
+}
+
+            * Temperature 0.1: Critical. We don't want the AI to be creative when extracting graph nodes. We want it to be boring and accurate.
+            * Safety Settings: Disable "Harassment" and "Hate Speech" filters strictly? No, actually, for SRS, we should set them to BLOCK_NONE because technical documentation might contain words like "Kill process", "Slave node", "Attack vector" which might trigger safety filters erroneously.
+________________
+13. Quality Assurance: Testing the Vibe
+How do we test a system that is non-deterministic (LLM-based)?
+13.1 The "Golden Set" Evaluation
+We cannot write unit tests for the LLM's output in the traditional sense. Instead, we use a "Golden Set."
+            1. Create a tests/data/golden_sample.md file. This file has known entities (e.g., "Alpha Component", "Beta Service").
+            2. Test: Run the Extraction Service on this file.
+            3. Assertion: Check if "Alpha Component" exists in the output JSON.
+            4. Metric: If the LLM misses it, the test fails. This helps us tune the System Prompt over time.
+13.2 Visual Regression Testing
+Since the UI is Streamlit, automated UI testing is hard.
+            * Vibe Check Protocol: The developer should manually check the "Graph Explorer" after every major change.
+            * Heuristic: Does the graph look like a hairball? (Too many edges). Does it look disconnected? (Too few edges). This visual feedback loop is the primary QA mechanism in Vibe Coding.
+________________
+14. Operational constraints & Deployment
+14.1 The "Localhost" Assumption
+CognitiveSpec is designed to run on localhost:8501.
+            * Constraint: It assumes a single user. There is no locking mechanism on the graph.json file. If two users ran this against a shared network drive, they would overwrite each other's graphs.
+            * Guideline: "One Developer, One Graph." For team sharing, users should commit the docs/ folder to Git, and each developer regenerates their own local graph. We explicitly do not recommend checking in the graph.json to Git to avoid massive merge conflicts.
+14.2 Hardware Requirements
+            * RAM: Loading sentence-transformers requires ~500MB - 1GB RAM. NetworkX is efficient but for 10k nodes might need 200MB.
+            * Disk: Vector embeddings (ChromaDB) can grow. For 10MB of text, the vector store might be 20MB. Negligible for modern SSDs.
+            * Network: The bottleneck is the Gemini API bandwidth. A decent internet connection is required for the Ingestion phase. The Visualization phase is offline (after ingestion).
+________________
+15. Conclusion
+This expanded specification provides the comprehensive roadmap required to build CognitiveSpec. It balances the cutting-edge capabilities of Generative AI (GraphRAG, Auto-Linking) with the pragmatic realities of "Vibe Coding" (Local, Simple, Iterative). By following this blueprint, a developer using Cursor can construct a tool that not only manages documentation but transforms it into an active, intelligent partner in the software engineering process.
+Works cited
+            1. Cursor vs Google AntiGravity? Best Vibe Coding AI IDE, accessed December 3, 2025, https://www.youtube.com/watch?v=Xzc19oYga-w
+            2. Cursor 2.0 Can Vibe Code ENTIRE Apps, accessed December 3, 2025, https://www.youtube.com/watch?v=PAILPq1AImY
+            3. This AI Coding Stack Writes 90% of My Code, accessed December 3, 2025, https://www.youtube.com/watch?v=IQqNRmoEa0s
+            4. What's the Best All‑in‑One Stack for Vibe Coding? - DEV Community, accessed December 3, 2025, https://dev.to/nithya_iyer/whats-the-best-all-in-one-stack-for-vibe-coding-b5p
+            5. The New Cursor Agent is Insane (Full Tutorial) - Analytics Vidhya, accessed December 3, 2025, https://www.analyticsvidhya.com/blog/2025/07/cursor-agent-guide/
+            6. Streamlit and Cursor : r/ChatGPTCoding - Reddit, accessed December 3, 2025, https://www.reddit.com/r/ChatGPTCoding/comments/1ge83bz/streamlit_and_cursor/
+            7. Bring Your Data To Life By Graphing It On Streamlit - YouTube, accessed December 3, 2025, https://www.youtube.com/watch?v=af9GIXYG_yQ
+            8. How To Vibe Code Your App - Lesson 4 (cursor ai, chatgpt, claude, gemini 3) - YouTube, accessed December 3, 2025, https://www.youtube.com/watch?v=Y-HTpN5NGPM
+            9. Structured Outputs | Gemini API - Google AI for Developers, accessed December 3, 2025, https://ai.google.dev/gemini-api/docs/structured-output
+            10. generative-ai-docs/site/en/gemini-api/tutorials/extract_structured_data.ipynb at main, accessed December 3, 2025, https://github.com/google/generative-ai-docs/blob/main/site/en/gemini-api/tutorials/extract_structured_data.ipynb
+            11. getzep/graphiti: Build Real-Time Knowledge Graphs for AI Agents - GitHub, accessed December 3, 2025, https://github.com/getzep/graphiti
+            12. How GraphRAG Works Step-By-Step - Towards AI, accessed December 3, 2025, https://pub.towardsai.net/how-microsofts-graphrag-works-step-by-step-b15cada5c209
+            13. EntGPT: Linking Generative Large Language Models with Knowledge Bases - arXiv, accessed December 3, 2025, https://arxiv.org/html/2402.06738v1
+            14. What's the best vector database for building AI products? | Liveblocks blog, accessed December 3, 2025, https://liveblocks.io/blog/whats-the-best-vector-database-for-building-ai-products
+            15. Visualize graph networks with Python and Streamlit - yWorks, accessed December 3, 2025, https://www.yworks.com/products/yfiles-graphs-for-streamlit
+            16. How to Solve 5 Common RAG Failures with Knowledge Graphs - freeCodeCamp, accessed December 3, 2025, https://www.freecodecamp.org/news/how-to-solve-5-common-rag-failures-with-knowledge-graphs/
+            17. GraphRAG using LangChain. codes explained with example… | by Mehul Gupta | Data Science in Your Pocket | Medium, accessed December 3, 2025, https://medium.com/data-science-in-your-pocket/graphrag-using-langchain-31b1ef8328b9
+            18. What is your favorite vector database that runs purely in a Python process - Reddit, accessed December 3, 2025, https://www.reddit.com/r/LangChain/comments/1gadyp3/what_is_your_favorite_vector_database_that_runs/
+            19. Rules | Cursor Docs, accessed December 3, 2025, https://cursor.com/docs/context/rules
+            20. Mastering Cursor IDE: 10 Best Practices (Building a Daily Task Manager App) - Medium, accessed December 3, 2025, https://medium.com/@roberto.g.infante/mastering-cursor-ide-10-best-practices-building-a-daily-task-manager-app-0b26524411c1
+            21. Documentation Template | PDF | Databases | Software Engineering - Scribd, accessed December 3, 2025, https://www.scribd.com/document/904988382/Documentation-Template
+            22. Leveraging the Power of Large Language Models in Entity Linking via Adaptive Routing and Targeted Reasoning - Apple Machine Learning Research, accessed December 3, 2025, https://machinelearning.apple.com/research/leveraging-power
+            23. Building a Biomedical Entity Linker with LLMs | by Anand Subramanian - Medium, accessed December 3, 2025, https://medium.com/data-science/building-a-biomedical-entity-linker-with-llms-d385cb85c15a
+            24. Recently tried Cursor AI to try and build a RAG system : r/LocalLLaMA - Reddit, accessed December 3, 2025, https://www.reddit.com/r/LocalLLaMA/comments/1kjnojg/recently_tried_cursor_ai_to_try_and_build_a_rag/
+            25. New Component: Interactive Graph Visualization Component for Streamlit, accessed December 3, 2025, https://discuss.streamlit.io/t/new-component-interactive-graph-visualization-component-for-streamlit/73030
+            26. Streamlit应用开发规则 | Cursor Rules Guide | cursorrules, accessed December 3, 2025, https://cursorrules.org/article/streamlit-cursor-mdc-file
+            27. LLMs Coding RAG Applications? MCP + Evaluating Cursor, Aider, Claude Code, and GitHub Copilot - YouTube, accessed December 3, 2025, https://www.youtube.com/watch?v=rL1wlYIyJho

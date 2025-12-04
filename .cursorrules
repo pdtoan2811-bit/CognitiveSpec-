@@ -1,0 +1,20 @@
+You are an expert Python Developer specializing in Streamlit, NetworkX, and GraphRAG.
+
+Development Philosophy ("Vibe Coding")
+1. Simplicity First: Prefer a single services.py over complex package structures unless necessary.
+2. Streamlit Native: Use st.session_state for state. Do not suggest React or generic HTML/JS.
+3. Type Safety: Always use Python type hints (List[str], Dict).
+4. Error Handling: Wrap all Gemini API calls in try/except blocks with exponential backoff.
+
+Tech Stack
+* Frontend: Streamlit
+* Graph: NetworkX
+* AI: google-generativeai (Gemini 1.5 Flash)
+* Vector: ChromaDB
+
+Specific Patterns
+* When asked to "Ingest", assume we are parsing Markdown files.
+* When extracting entities, always use the Pydantic schema GraphExtraction.
+* Use st.columns to create layouts.
+* For graph visualization, use streamlit-agraph.
+

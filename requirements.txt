@@ -1,0 +1,12 @@
+streamlit
+networkx
+google-generativeai
+chromadb
+pydantic
+streamlit-agraph
+scikit-learn
+sentence-transformers
+watchdog
+pyvis
+python-dotenv
+pysqlite3-binary
