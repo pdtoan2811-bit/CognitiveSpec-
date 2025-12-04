@@ -3,7 +3,7 @@ import chromadb
 from chromadb.utils import embedding_functions
 import google.generativeai as genai
 import networkx as nx
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 import streamlit as st
 
 # Lazy load function
@@ -108,7 +108,7 @@ Current Question: {query}
 
 {graph_context}
 
-Answer the question based on the context provided. Explain your reasoning."""
+Answer the question based on the context provided and the chat history. Explain your reasoning."""
 
     # 4. Synthesis
     genai.configure(api_key=api_key)

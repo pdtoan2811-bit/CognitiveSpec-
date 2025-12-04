@@ -74,7 +74,8 @@ def git_sync():
     try:
         # Check if .cognitivespec is ignored (should be fixed by now)
         subprocess.run(["git", "add", ".cognitivespec"], check=True)
-        subprocess.run(["git", "commit", "-m", "chore: Update Knowledge Base (Graph & Embeddings)"], check=False) # Might fail if nothing to commit
+        # Commit might fail if nothing to commit, suppress error but keep going
+        subprocess.run(["git", "commit", "-m", "chore: Update Knowledge Base (Graph & Embeddings)"], check=False) 
         subprocess.run(["git", "push"], check=True)
         return True, "Synced to Git successfully!"
     except Exception as e:
