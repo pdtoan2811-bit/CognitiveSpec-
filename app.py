@@ -6,6 +6,9 @@ import streamlit as st
 import os
 import networkx as nx
 import pickle
+import time
+import uuid
+import subprocess
 from dotenv import load_dotenv
 
 # Services
@@ -44,12 +47,38 @@ if "graph" not in st.session_state:
     st.session_state.graph = load_graph()
 
 if "token_usage" not in st.session_state:
-    st.session_state.token_usage = {"prompt": 0, "completion": 0, "total": 0}
+    st.session_state.token_usage = {"prompt": 0, "completion": 0, "total": 0, "history": []}
+
+# Chat Session Management
+if "chats" not in st.session_state:
+    st.session_state.chats = {}  # {session_id: [messages]}
+if "current_chat_id" not in st.session_state:
+    new_id = str(uuid.uuid4())
+    st.session_state.chats[new_id] = []
+    st.session_state.current_chat_id = new_id
 
 def update_token_usage(usage_dict):
     st.session_state.token_usage["prompt"] += usage_dict.get("prompt_token_count", 0)
     st.session_state.token_usage["completion"] += usage_dict.get("candidates_token_count", 0)
-    st.session_state.token_usage["total"] += usage_dict.get("total_token_count", 0)
+    total = usage_dict.get("total_token_count", 0)
+    st.session_state.token_usage["total"] += total
+    
+    # Track history for chart
+    st.session_state.token_usage["history"].append({
+        "time": time.strftime("%H:%M:%S"),
+        "tokens": total
+    })
+
+def git_sync():
+    """Syncs the .cognitivespec folder to the git repo."""
+    try:
+        # Check if .cognitivespec is ignored (should be fixed by now)
+        subprocess.run(["git", "add", ".cognitivespec"], check=True)
+        subprocess.run(["git", "commit", "-m", "chore: Update Knowledge Base (Graph & Embeddings)"], check=False) # Might fail if nothing to commit
+        subprocess.run(["git", "push"], check=True)
+        return True, "Synced to Git successfully!"
+    except Exception as e:
+        return False, f"Git Sync Failed: {e}"
 
 def main():
     st.title("CognitiveSpec 🧠")
@@ -60,14 +89,43 @@ def main():
         page = st.radio("Go to", ["Graph Explorer", "Document Reader", "Chat", "Settings"])
         
         st.markdown("---")
+        st.header("Chat Sessions")
+        if st.button("➕ New Chat"):
+            new_id = str(uuid.uuid4())
+            st.session_state.chats[new_id] = []
+            st.session_state.current_chat_id = new_id
+            st.rerun()
+
+        # Session List
+        chat_ids = list(st.session_state.chats.keys())
+        for c_id in reversed(chat_ids): # Show newest first
+            messages = st.session_state.chats[c_id]
+            label = "Empty Chat"
+            if messages:
+                # Use first user message as label, truncate to 20 chars
+                first_msg = next((m['content'] for m in messages if m['role'] == 'user'), "New Chat")
+                label = (first_msg[:20] + '..') if len(first_msg) > 20 else first_msg
+            
+            if st.button(label, key=c_id):
+                st.session_state.current_chat_id = c_id
+                st.rerun()
+        
+        st.markdown("---")
         st.header("Graph Stats")
         st.metric("Nodes", st.session_state.graph.number_of_nodes())
         st.metric("Edges", st.session_state.graph.number_of_edges())
         
-        with st.expander("Session Cost / Stats"):
-            st.write(f"**Total Tokens:** {st.session_state.token_usage['total']}")
+        # Enhanced Token Monitor
+        with st.expander("Session Cost / Stats", expanded=True):
+            total = st.session_state.token_usage['total']
+            last = st.session_state.token_usage['history'][-1]['tokens'] if st.session_state.token_usage['history'] else 0
+            
+            st.metric("Total Tokens", total, delta=last)
             st.write(f"Prompt: {st.session_state.token_usage['prompt']}")
             st.write(f"Completion: {st.session_state.token_usage['completion']}")
+            
+            if st.session_state.token_usage["history"]:
+                st.line_chart([h['tokens'] for h in st.session_state.token_usage["history"]])
 
         st.markdown("---")
         if st.button("Re-Scan Documents"):
@@ -94,6 +152,13 @@ def main():
                     # 3. Update Vector Store
                     rag_engine.add_documents(chunks)
                     
+                    # 4. Git Sync (Optional Auto-Sync)
+                    success, msg = git_sync()
+                    if success:
+                        st.toast(msg)
+                    else:
+                        st.error(msg)
+
                     st.success("Ingestion Complete!")
                     st.rerun()
                 else:
@@ -124,23 +189,25 @@ def main():
     elif page == "Chat":
         st.header("Cognitive Chat")
         
-        # Initialize chat history
-        if "messages" not in st.session_state:
-            st.session_state.messages = []
+        current_id = st.session_state.current_chat_id
+        current_messages = st.session_state.chats[current_id]
 
         # Display chat messages
-        for message in st.session_state.messages:
+        for message in current_messages:
             chat_ui.render_chat_bubble(message["role"], message["content"])
 
         if prompt := st.chat_input("Ask about the specs..."):
-            st.session_state.messages.append({"role": "user", "content": prompt})
+            # Add user message
+            current_messages.append({"role": "user", "content": prompt})
             chat_ui.render_chat_bubble("user", prompt)
             
             with st.spinner("Thinking..."):
-                response, usage = rag_engine.query_rag(prompt, st.session_state.graph)
+                # Pass full history (current_messages) to RAG
+                response, usage = rag_engine.query_rag(prompt, st.session_state.graph, chat_history=current_messages)
                 update_token_usage(usage)
                 
-            st.session_state.messages.append({"role": "assistant", "content": response})
+            # Add assistant message
+            current_messages.append({"role": "assistant", "content": response})
             chat_ui.render_chat_bubble("assistant", response)
             
     elif page == "Settings":
@@ -149,6 +216,14 @@ def main():
         if api_key:
             os.environ["GEMINI_API_KEY"] = api_key
             st.success("API Key loaded session-only.")
+            
+        if st.button("Sync Knowledge Base to Git"):
+            with st.spinner("Syncing..."):
+                success, msg = git_sync()
+                if success:
+                    st.success(msg)
+                else:
+                    st.error(msg)
 
 if __name__ == "__main__":
     main()

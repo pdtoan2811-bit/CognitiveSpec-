@@ -47,7 +47,7 @@ def add_documents(documents: List[Any]):
         metadatas=metadatas
     )
 
-def query_rag(query: str, G: nx.DiGraph) -> Tuple[str, Dict[str, int]]:
+def query_rag(query: str, G: nx.DiGraph, chat_history: List[Dict[str, str]] = None) -> Tuple[str, Dict[str, int]]:
     """
     RAG Logic
     Returns: (answer_text, usage_dict)
@@ -87,7 +87,22 @@ def query_rag(query: str, G: nx.DiGraph) -> Tuple[str, Dict[str, int]]:
 
     graph_context = "\nGraph Context:\n" + "\n".join(list(set(related_nodes_info))[:20])
 
-    full_prompt = f"""Question: {query}
+    # 3. Format Chat History
+    history_text = ""
+    if chat_history:
+        # Take last 5 exchanges
+        recent_history = chat_history[-10:] 
+        history_text = "Chat History:\n"
+        for msg in recent_history:
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+            history_text += f"{role.upper()}: {content}\n"
+
+    full_prompt = f"""You are a helpful technical assistant for a software project.
+    
+{history_text}
+
+Current Question: {query}
 
 {context_text}
 
@@ -95,7 +110,7 @@ def query_rag(query: str, G: nx.DiGraph) -> Tuple[str, Dict[str, int]]:
 
 Answer the question based on the context provided. Explain your reasoning."""
 
-    # 3. Synthesis
+    # 4. Synthesis
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-2.5-flash')
     try:

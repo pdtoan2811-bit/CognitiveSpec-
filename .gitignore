@@ -17,7 +17,7 @@ pip-delete-this-directory.txt
 .env
 
 # Project specific
-.cognitivespec/
-*.pkl
-*.db
+# .cognitivespec/  <-- Commented out to allow Git tracking as per V2 plan
+# *.pkl
+# *.db
 
